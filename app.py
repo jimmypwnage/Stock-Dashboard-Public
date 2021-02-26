@@ -6,7 +6,6 @@ from dash.dependencies import Output, Input, State
 import pandas as pd
 import numpy as np
 import datetime
-import requests
 import sharpe_ratio_pkg as sharpe
 from plotly.subplots import make_subplots
 from plotly.colors import DEFAULT_PLOTLY_COLORS
@@ -20,7 +19,8 @@ api_key = os.environ.get("access-key")
 
 cols = DEFAULT_PLOTLY_COLORS
 
-end_date_default = datetime.datetime.today().strftime('%Y-%m-%d')
+# end_date_default = datetime.datetime.today().strftime('%Y-%m-%d')
+end_date_default = '2021-02-26'
 start_date_default = (datetime.datetime.today() - datetime.timedelta(weeks=12)).strftime('%Y-%m-%d')
 
 external_stylesheets = [dbc.themes.BOOTSTRAP]
@@ -30,7 +30,6 @@ server = app.server
 
 app.title = 'Portfolio Optimizer'
 
-debug_mode = False
 num_options = 5
 
 header_card = html.Div(
@@ -47,26 +46,19 @@ header_card = html.Div(
 
 list_stocks = ['AMD', 'SE', 'RTX', 'MSFT', 'TSLA', 'AMZN', 'BABA', 'RIO', 'GOOGL', 'ACN', 'APA', 'KO']
 
+stock_data_master = pd.read_csv('stock_data.csv')
+stock_data_master['date'] = pd.to_datetime(stock_data_master['date'])
+
 
 def query_stock(ticker, date_from, date_to):
-    params = {'access_key': api_key,
-              'date_from': date_from,
-              'date_to': date_to,
-              'limit': 1000}
-
-    api_result = requests.get(f'https://api.marketstack.com/v1/tickers/{ticker}/eod', params)
-    api_response = api_result.json()
-
-    try:
-        stock_name = api_response['data']['name']
-        stock_data = pd.DataFrame.from_dict(api_response['data']['eod'])
-        stock_data['date'] = pd.to_datetime(stock_data['date'])
-        stock_data['name'] = stock_name
-    except KeyError:
-        return pd.DataFrame()
+    stock_data = stock_data_master[
+        (stock_data_master['symbol'] == ticker) &
+        (stock_data_master['date'] >= date_from) &
+        (stock_data_master['date'] < date_to)
+    ]
 
     stock_data.sort_values('date', inplace=True)
-    stock_data['final_volume'] = stock_data['adj_volume'].combine_first(stock_data['volume'])
+    stock_data.loc[:, 'final_volume'] = stock_data['adj_volume'].combine_first(stock_data['volume'])
 
     return stock_data
 
@@ -80,13 +72,16 @@ def generate_options_card(num_options):
         if i == 0:
             stock_card = [
                 html.Div(children='Stock Ticker', className='menu-title'),
-                dcc.Input(
+                dcc.Dropdown(
                     id=f'stock_name_input_{i}',
-                    type='search',
+                    options=[
+                        {'label': ticker, 'value': ticker}
+                        for ticker in list_stocks
+                    ],
                     placeholder='Input Ticker here',
                     value=selected_stocks[i],
-                    className='input',
-                    multiple=True
+                    className='dropdown',
+                    clearable=False
                 )
             ]
             value_input_card = [
@@ -103,7 +98,7 @@ def generate_options_card(num_options):
                 html.Div(children='Date Range', className='menu-title'),
                 dcc.DatePickerRange(
                     id=f'date_range_{i}',
-                    min_date_allowed=datetime.date(2010, 1, 1),
+                    min_date_allowed=datetime.date(2017, 3, 18),
                     max_date_allowed=datetime.datetime.strptime(end_date_default, '%Y-%m-%d'),
                     start_date=datetime.datetime.strptime(start_date_default, '%Y-%m-%d'),
                     end_date=datetime.datetime.strptime(end_date_default, '%Y-%m-%d'),
@@ -113,13 +108,16 @@ def generate_options_card(num_options):
             ]
         else:
             stock_card = [
-                dcc.Input(
+                dcc.Dropdown(
                     id=f'stock_name_input_{i}',
-                    type='search',
+                    options=[
+                        {'label': ticker, 'value': ticker}
+                        for ticker in list_stocks
+                    ],
                     placeholder='Input Ticker here',
                     value=selected_stocks[i],
-                    className='input',
-                    multiple=True
+                    className='dropdown',
+                    clearable=False
                 )
             ]
             value_input_card = [
@@ -267,11 +265,6 @@ def update_chart(*args):
     interested_df['start_date'] = pd.to_datetime(interested_df['start_date']).dt.strftime('%Y-%m-%d')
     interested_df['end_date'] = pd.to_datetime(interested_df['end_date']).dt.strftime('%Y-%m-%d')
 
-    if debug_mode:
-        interested_df = pd.read_csv('interested_df.csv')
-    else:
-        interested_df.to_csv('interested_df.csv')
-
     print(f'Searched {n_clicks} time(s) at {datetime.datetime.now()}')
 
     # query data
@@ -280,14 +273,10 @@ def update_chart(*args):
         If ticker change, only re-query the changed ticker,
         If date range change, check whether new date range is within the old date range
     '''
-    if debug_mode:
-        stock_data = pd.read_csv('stock_data.csv')
-    else:
-        result_list = [query_stock(row[0], row[1], row[2]) for row in zip(interested_df['stock_ticker'],
-                                                                          interested_df['start_date'],
-                                                                          interested_df['end_date'])]
-        stock_data = pd.concat(result_list)
-        stock_data.to_csv('stock_data.csv')
+    result_list = [query_stock(row[0], row[1], row[2]) for row in zip(interested_df['stock_ticker'],
+                                                                      interested_df['start_date'],
+                                                                      interested_df['end_date'])]
+    stock_data = pd.concat(result_list)
 
     # check which ticker has error
     query_list = set(interested_df['stock_ticker'].unique())

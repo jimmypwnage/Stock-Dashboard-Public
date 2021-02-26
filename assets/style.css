@@ -62,16 +62,21 @@ body {
 }
 
 .Select-control {
-    width: 600px;
+    width: 200px;
+    margin: auto auto auto 20px;
+    text-align: center;
     height: 48px;
 }
 
 .Select--single > .Select-control .Select-value, .Select-placeholder {
     line-height: 48px;
+    text-align: center;
 }
 
 .Select--multi .Select-value-label {
     line-height: 32px;
+    margin: auto auto auto 20px;
+    text-align: center;
 }
 
 .menu-title {
