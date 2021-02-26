@@ -55,7 +55,7 @@ def query_stock(ticker, date_from, date_to):
         (stock_data_master['symbol'] == ticker) &
         (stock_data_master['date'] >= date_from) &
         (stock_data_master['date'] < date_to)
-    ]
+    ].copy()
 
     stock_data.sort_values('date', inplace=True)
     stock_data.loc[:, 'final_volume'] = stock_data['adj_volume'].combine_first(stock_data['volume'])
@@ -76,7 +76,7 @@ def generate_options_card(num_options):
                     id=f'stock_name_input_{i}',
                     options=[
                         {'label': ticker, 'value': ticker}
-                        for ticker in list_stocks
+                        for ticker in np.sort(stock_data_master['symbol'].unique())
                     ],
                     placeholder='Input Ticker here',
                     value=selected_stocks[i],
@@ -112,7 +112,7 @@ def generate_options_card(num_options):
                     id=f'stock_name_input_{i}',
                     options=[
                         {'label': ticker, 'value': ticker}
-                        for ticker in list_stocks
+                        for ticker in np.sort(stock_data_master['symbol'].unique())
                     ],
                     placeholder='Input Ticker here',
                     value=selected_stocks[i],
