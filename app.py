@@ -316,44 +316,40 @@ def update_chart(*args):
                                         vertical_spacing=0.10)
 
     amount_chart_figure.append_trace(
-            go.Scatter(x=grouped_data.index, y=grouped_data['total_value'],
-                       fill='tonexty',
-                       line={'color': 'royalblue'},
-                       hovertemplate='$%{y:.2f}<extra></extra>'),
-            row=1,
-            col=1
-        )
-
-    amount_chart_figure.append_trace(
         go.Scatter(x=daily_returns_overall.index, y=daily_returns_overall,
                    line={'color': '#FFCCCB'},
+                   showlegend=False,
                    hovertemplate='%{y:.2f}%<extra></extra>'),
         row=2,
         col=1
     )
 
-    amount_chart_figure.update_layout(template='plotly_white', showlegend=False, hovermode='x unified',
-                                      title_text=f'Overall Performance for '
-                                                 f'All Stocks ({", ".join(stock_data["symbol"].unique())})')
-
-    amount_chart_figure.update_yaxes(title_text='Price ($)', row=1, tickprefix='$')
-    amount_chart_figure.update_yaxes(title_text='Daily % Change', row=2, ticksuffix='%')
-
     overall_plot = go.Figure()
 
     performance_fig = make_subplots(rows=2, cols=stock_data['symbol'].nunique(),
-                        subplot_titles=[stock_name for stock_name in stock_data['symbol'].unique()],
-                        shared_xaxes='all',
-                        horizontal_spacing=0.05,
-                        vertical_spacing=0.10)
+                                    subplot_titles=[stock_name for stock_name in stock_data['symbol'].unique()],
+                                    shared_xaxes='all',
+                                    horizontal_spacing=0.05,
+                                    vertical_spacing=0.10)
 
     num_stocks = stock_data['symbol'].nunique()
 
     for j in range(num_stocks):
-        stock_name = stock_data['symbol'].unique()[j]
-        temp_stock = stock_data[stock_data['symbol'] == stock_name]
+        stock_name = combined_data['symbol'].unique()[j]
+        temp_stock = combined_data[combined_data['symbol'] == stock_name]
 
         daily_returns = temp_stock.set_index('date')['adj_close'].pct_change() * 100
+
+        amount_chart_figure.append_trace(
+            go.Scatter(x=temp_stock['date'], y=temp_stock['total_value'],
+                       mode='lines',
+                       stackgroup='one',
+                       name=stock_name,
+                       text=temp_stock['symbol'],
+                       hovertemplate='%{text}: $%{y:.2f}<extra></extra>'),
+            row=1,
+            col=1
+        )
 
         overall_plot.add_trace(
             go.Scatter(x=temp_stock['date'], y=temp_stock['adj_close'],
@@ -380,6 +376,23 @@ def update_chart(*args):
             row=2,
             col=j + 1,
         )
+
+    amount_chart_figure.append_trace(
+        go.Scatter(x=grouped_data.index, y=grouped_data['total_value'],
+                   showlegend=False,
+                   line=dict(color='rgba(46, 49, 49, 1)'),
+                   hovertemplate='<b>Total: $%{y:.2f}</b><extra></extra>'),
+        row=1,
+        col=1
+    )
+
+    amount_chart_figure.update_layout(template='plotly_white', showlegend=True, hovermode='x unified',
+                                      legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+                                      title_text=f'Overall Performance for '
+                                                 f'All Stocks ({", ".join(stock_data["symbol"].unique())})')
+
+    amount_chart_figure.update_yaxes(title_text='Price ($)', row=1, tickprefix='$')
+    amount_chart_figure.update_yaxes(title_text='Daily % Change', row=2, ticksuffix='%')
 
     overall_plot.update_layout(template='plotly_white', hovermode='x unified',
                                title_text='All stock(s) historical prices')
