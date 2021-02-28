@@ -213,7 +213,8 @@ layout_children = [
         # header
         header_card,
         html.Div(id='alert_div', children=[]),
-        graphs_card
+        html.Div(id='query_df', style={'display': 'none'}),
+        graphs_card,
     ]
 
 layout_children[1:1] = options_card
@@ -233,18 +234,15 @@ for i in range(num_options):
 
 @app.callback(
     [
-        Output('amount-chart', 'figure'),
-        Output('all-stock-chart', 'figure'),
-        Output('subplot-chart', 'figure'),
-        Output('efficient-frontier-chart', 'figure'),
-        Output('alert_div', 'children')
-     ],
+        Output('alert_div', 'children'),
+        Output('query_df', 'children')
+    ],
     [
-        Input(f'search_button', 'n_clicks')
+        Input('search_button', 'n_clicks')
     ],
     input_list
 )
-def update_chart(*args):
+def query_data(*args):
     n_clicks = args[0]
 
     ticker_index = [index_num for index_num in range(len(args)) if (index_num - 1) % 4 == 0]
@@ -273,6 +271,7 @@ def update_chart(*args):
         If ticker change, only re-query the changed ticker,
         If date range change, check whether new date range is within the old date range
     '''
+
     result_list = [query_stock(row[0], row[1], row[2]) for row in zip(interested_df['stock_ticker'],
                                                                       interested_df['start_date'],
                                                                       interested_df['end_date'])]
@@ -304,7 +303,26 @@ def update_chart(*args):
                                                                       right_on='stock_ticker')
     combined_data['total_value'] = combined_data['adj_close'] * combined_data['unit_bought']
 
+    return alert, [combined_data.to_json(date_format='iso', orient='split'),
+                   initial_data.to_json(date_format='iso', orient='split')]
+
+
+@app.callback(
+    [
+        Output('amount-chart', 'figure'),
+        Output('all-stock-chart', 'figure'),
+        Output('subplot-chart', 'figure')
+    ],
+    [
+        Input('query_df', 'children')
+    ]
+)
+def update_charts(jsonified_cleaned_data):
+    combined_data = pd.read_json(jsonified_cleaned_data[0], orient='split')
+
     grouped_data = combined_data.groupby(['date'])['total_value'].sum().to_frame()
+    first_value_invested = grouped_data['total_value'].iloc[0]
+
     daily_returns_overall = grouped_data['total_value'].pct_change() * 100
 
     amount_chart_figure = make_subplots(rows=2, cols=1,
@@ -326,13 +344,13 @@ def update_chart(*args):
 
     overall_plot = go.Figure()
 
-    performance_fig = make_subplots(rows=2, cols=stock_data['symbol'].nunique(),
-                                    subplot_titles=[stock_name for stock_name in stock_data['symbol'].unique()],
+    performance_fig = make_subplots(rows=2, cols=combined_data['symbol'].nunique(),
+                                    subplot_titles=[stock_name for stock_name in combined_data['symbol'].unique()],
                                     shared_xaxes='all',
                                     horizontal_spacing=0.05,
                                     vertical_spacing=0.10)
 
-    num_stocks = stock_data['symbol'].nunique()
+    num_stocks = combined_data['symbol'].nunique()
 
     for j in range(num_stocks):
         stock_name = combined_data['symbol'].unique()[j]
@@ -389,7 +407,7 @@ def update_chart(*args):
     amount_chart_figure.update_layout(template='plotly_white', showlegend=True, hovermode='x unified',
                                       legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
                                       title_text=f'Overall Performance for '
-                                                 f'All Stocks ({", ".join(stock_data["symbol"].unique())})')
+                                                 f'All Stocks ({", ".join(combined_data["symbol"].unique())})')
 
     amount_chart_figure.update_yaxes(title_text='Price ($)', row=1, tickprefix='$')
     amount_chart_figure.update_yaxes(title_text='Daily % Change', row=2, ticksuffix='%')
@@ -405,8 +423,22 @@ def update_chart(*args):
     performance_fig.update_yaxes(title_text='Daily % Change', row=2, col=1)
     performance_fig.update_yaxes(row=2, ticksuffix='%')
 
+    return amount_chart_figure, overall_plot, performance_fig
+
+
+@app.callback(
+    [
+        Output('efficient-frontier-chart', 'figure'),
+     ],
+    [
+        Input('query_df', 'children')
+    ]
+)
+def update_efficient_frontier(jsonified_cleaned_data):
+    combined_data = pd.read_json(jsonified_cleaned_data[0], orient='split')
+
     # get efficient frontier for sharpe ratio
-    table = pd.pivot_table(data=stock_data, index='date', columns='symbol', values='adj_close', aggfunc='sum')
+    table = pd.pivot_table(data=combined_data, index='date', columns='symbol', values='adj_close', aggfunc='sum')
     returns = table.pct_change()
 
     mean_returns = returns.mean()
@@ -434,6 +466,8 @@ def update_chart(*args):
                                  'volatility': volatility,
                                  'returns': target
                                  })
+
+    initial_data = pd.read_json(jsonified_cleaned_data[1], orient='split')
 
     # get current portfolio performance
     initial_data['weight'] = initial_data['value_invested'] / initial_data['value_invested'].sum()
@@ -463,10 +497,12 @@ def update_chart(*args):
     sharpe_ratio_fig.add_trace(
         go.Scatter(
             x=efficient_df['volatility'], y=efficient_df['returns'],
+            text=((efficient_df['returns'] - risk_free_rate) / efficient_df['volatility']).round(3),
             customdata=efficient_df[list_of_stocks],
             hoverlabel={'namelength': -1},
             hovertemplate='<b>Volatility: %{x:.2f} <br>' +
-                          'Returns: %{y:.2f} </b><br><br>' +
+                          'Returns: %{y:.2f}<br>' +
+                          'Sharpe Ratio: %{text}</b><br><br>' +
                           '<b>Weight</b>:<br>' +
                           hover_string_frontier + '<extra></extra>',
             line=dict(color='lightblue')
@@ -517,10 +553,10 @@ def update_chart(*args):
 
     sharpe_ratio_fig.update_layout(template='plotly_white', showlegend=False,
                                    title_text='Optimum Frontier for Sharpe Ratio')
-    sharpe_ratio_fig.update_yaxes(title_text='Returns')
-    sharpe_ratio_fig.update_xaxes(title_text='Volatility')
+    sharpe_ratio_fig.update_yaxes(title_text='Annualized Returns')
+    sharpe_ratio_fig.update_xaxes(title_text='Annualized Volatility')
 
-    return amount_chart_figure, overall_plot, performance_fig, sharpe_ratio_fig, alert
+    return [sharpe_ratio_fig]
 
 
 if __name__ == '__main__':
