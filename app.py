@@ -364,6 +364,7 @@ def update_charts(jsonified_cleaned_data):
                        stackgroup='one',
                        name=stock_name,
                        text=temp_stock['symbol'],
+                       line=dict(color=cols[j]),
                        hovertemplate='%{text}: $%{y:.2f}<extra></extra>'),
             row=1,
             col=1
