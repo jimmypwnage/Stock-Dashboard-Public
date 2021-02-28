@@ -21,7 +21,7 @@ cols = DEFAULT_PLOTLY_COLORS
 
 # end_date_default = datetime.datetime.today().strftime('%Y-%m-%d')
 end_date_default = '2021-02-26'
-start_date_default = (datetime.datetime.today() - datetime.timedelta(weeks=12)).strftime('%Y-%m-%d')
+start_date_default = (datetime.datetime.today() - datetime.timedelta(weeks=26)).strftime('%Y-%m-%d')
 
 external_stylesheets = [dbc.themes.BOOTSTRAP]
 
@@ -132,7 +132,7 @@ def generate_options_card(num_options):
             date_range_card = [
                 dcc.DatePickerRange(
                     id=f'date_range_{i}',
-                    min_date_allowed=datetime.date(2010, 1, 1),
+                    min_date_allowed=datetime.date(2017, 3, 29),
                     max_date_allowed=datetime.datetime.strptime(end_date_default, '%Y-%m-%d'),
                     start_date=datetime.datetime.strptime(start_date_default, '%Y-%m-%d'),
                     end_date=datetime.datetime.strptime(end_date_default, '%Y-%m-%d'),
@@ -183,11 +183,25 @@ graphs_card = html.Div(
                   className='card',
               ),
               html.Div(
-                  children=dcc.Graph(
-                      id='all-stock-chart', config={'displayModeBar': False},
-                      style={'width': '80wh', 'height': '80vh'}
-                  ),
-                  className='card',
+                  children=[
+                      html.Div(children='Select type of graph', className='menu-card-title'),
+                      dcc.Dropdown(
+                          id='all-stock-chart-choice',
+                          options=[
+                              {'label': x, 'value': x}
+                              for x in ['Stocks Raw Price vs Index',
+                                        'Stocks Normalized vs Index',
+                                        'Portfolio Normalized vs Index']],
+                          value='Stocks Normalized vs Index',
+                          clearable=False,
+                          className='input-special'
+                      ),
+                      dcc.Graph(
+                          id='all-stock-chart', config={'displayModeBar': False},
+                          style={'width': '80wh', 'height': '65vh'}
+                      )
+                  ],
+                  className='card-with-dropdown',
               ),
               html.Div(
                   children=dcc.Graph(
@@ -260,8 +274,14 @@ def query_data(*args):
         }
     )
 
-    interested_df['start_date'] = pd.to_datetime(interested_df['start_date']).dt.strftime('%Y-%m-%d')
-    interested_df['end_date'] = pd.to_datetime(interested_df['end_date']).dt.strftime('%Y-%m-%d')
+    interested_df['start_date'] = pd.to_datetime(interested_df['start_date'])
+    interested_df['end_date'] = pd.to_datetime(interested_df['end_date'])
+
+    earliest_start_date = interested_df['start_date'].min().strftime('%Y-%m-%d')
+    latest_end_date = interested_df['end_date'].max().strftime('%Y-%m-%d')
+
+    interested_df['start_date'] = interested_df['start_date'].dt.strftime('%Y-%m-%d')
+    interested_df['end_date'] = interested_df['end_date'].dt.strftime('%Y-%m-%d')
 
     print(f'Searched {n_clicks} time(s) at {datetime.datetime.now()}')
 
@@ -271,11 +291,16 @@ def query_data(*args):
         If ticker change, only re-query the changed ticker,
         If date range change, check whether new date range is within the old date range
     '''
-
     result_list = [query_stock(row[0], row[1], row[2]) for row in zip(interested_df['stock_ticker'],
-                                                                      interested_df['start_date'],
-                                                                      interested_df['end_date'])]
+                                                                        interested_df['start_date'],
+                                                                        interested_df['end_date'])]
     stock_data = pd.concat(result_list)
+
+    # query indexes (S&P 500 & DJI)
+    indexes_list = ['GSPC.INDX', 'IXIC.INDX', 'DJI.INDX']
+
+    for market_index in indexes_list:
+        stock_data = stock_data.append(query_stock(market_index, earliest_start_date, latest_end_date))
 
     # check which ticker has error
     query_list = set(interested_df['stock_ticker'].unique())
@@ -299,8 +324,10 @@ def query_data(*args):
     initial_data = initial_data[['stock_ticker', 'date', 'end_date', 'value_invested', 'unit_bought']]
     initial_data.rename(columns={'date': 'start_date'}, inplace=True)
 
-    combined_data = stock_data[['symbol', 'adj_close', 'date']].merge(initial_data, left_on='symbol',
-                                                                      right_on='stock_ticker')
+    combined_data = stock_data[['symbol', 'name', 'exchange', 'adj_close', 'date']].merge(initial_data,
+                                                                                          left_on='symbol',
+                                                                                          right_on='stock_ticker',
+                                                                                          how='left')
     combined_data['total_value'] = combined_data['adj_close'] * combined_data['unit_bought']
 
     return alert, [combined_data.to_json(date_format='iso', orient='split'),
@@ -310,7 +337,6 @@ def query_data(*args):
 @app.callback(
     [
         Output('amount-chart', 'figure'),
-        Output('all-stock-chart', 'figure'),
         Output('subplot-chart', 'figure')
     ],
     [
@@ -321,7 +347,6 @@ def update_charts(jsonified_cleaned_data):
     combined_data = pd.read_json(jsonified_cleaned_data[0], orient='split')
 
     grouped_data = combined_data.groupby(['date'])['total_value'].sum().to_frame()
-    first_value_invested = grouped_data['total_value'].iloc[0]
 
     daily_returns_overall = grouped_data['total_value'].pct_change() * 100
 
@@ -342,19 +367,19 @@ def update_charts(jsonified_cleaned_data):
         col=1
     )
 
-    overall_plot = go.Figure()
+    non_index_stocks = combined_data[combined_data['exchange'] != 'INDX']
 
-    performance_fig = make_subplots(rows=2, cols=combined_data['symbol'].nunique(),
-                                    subplot_titles=[stock_name for stock_name in combined_data['symbol'].unique()],
+    performance_fig = make_subplots(rows=2, cols=non_index_stocks['symbol'].nunique(),
+                                    subplot_titles=[stock_name for stock_name in non_index_stocks['symbol'].unique()],
                                     shared_xaxes='all',
                                     horizontal_spacing=0.05,
                                     vertical_spacing=0.10)
 
-    num_stocks = combined_data['symbol'].nunique()
+    num_stocks = non_index_stocks['symbol'].nunique()
 
     for j in range(num_stocks):
-        stock_name = combined_data['symbol'].unique()[j]
-        temp_stock = combined_data[combined_data['symbol'] == stock_name]
+        stock_name = non_index_stocks['symbol'].unique()[j]
+        temp_stock = non_index_stocks[non_index_stocks['symbol'] == stock_name]
 
         daily_returns = temp_stock.set_index('date')['adj_close'].pct_change() * 100
 
@@ -368,12 +393,6 @@ def update_charts(jsonified_cleaned_data):
                        hovertemplate='%{text}: $%{y:.2f}<extra></extra>'),
             row=1,
             col=1
-        )
-
-        overall_plot.add_trace(
-            go.Scatter(x=temp_stock['date'], y=temp_stock['adj_close'],
-                       name=stock_name, hovertemplate='$%{y:.2f}', line=dict(color=cols[j])
-                       )
         )
 
         performance_fig.append_trace(
@@ -408,14 +427,10 @@ def update_charts(jsonified_cleaned_data):
     amount_chart_figure.update_layout(template='plotly_white', showlegend=True, hovermode='x unified',
                                       legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
                                       title_text=f'Overall Performance for '
-                                                 f'All Stocks ({", ".join(combined_data["symbol"].unique())})')
+                                                 f'All Stocks ({", ".join(non_index_stocks["symbol"].unique())})')
 
     amount_chart_figure.update_yaxes(title_text='Price ($)', row=1, tickprefix='$')
     amount_chart_figure.update_yaxes(title_text='Daily % Change', row=2, ticksuffix='%')
-
-    overall_plot.update_layout(template='plotly_white', hovermode='x unified',
-                               title_text='All stock(s) historical prices')
-    overall_plot.update_yaxes(title_text='Price ($)', tickprefix='$')
 
     performance_fig.update_layout(template='plotly_white', showlegend=False, hovermode='x unified',
                                   title_text='Performance of individual stocks')
@@ -424,7 +439,95 @@ def update_charts(jsonified_cleaned_data):
     performance_fig.update_yaxes(title_text='Daily % Change', row=2, col=1)
     performance_fig.update_yaxes(row=2, ticksuffix='%')
 
-    return amount_chart_figure, overall_plot, performance_fig
+    return amount_chart_figure, performance_fig
+
+
+@app.callback(
+    [
+        Output('all-stock-chart', 'figure'),
+    ],
+    [
+        Input('query_df', 'children'),
+        Input('all-stock-chart-choice', 'value')
+    ]
+)
+def update_performance_all(query_df, type_of_graph):
+    combined_data = pd.read_json(query_df[0], orient='split')
+    combined_data['symbol'] = np.where(combined_data['exchange'] == 'INDX',
+                                       combined_data['name'],
+                                       combined_data['symbol'])
+
+    overall_plot = go.Figure()
+
+    if type_of_graph in ['Stocks Raw Price vs Index', 'Stocks Normalized vs Index']:
+        num_stocks = combined_data['symbol'].nunique()
+
+        for stock_num in range(num_stocks):
+            stock_name = combined_data['symbol'].unique()[stock_num]
+            temp_stock = combined_data[combined_data['symbol'] == stock_name]
+
+            initial_price = temp_stock['adj_close'].iloc[0]
+
+            if type_of_graph == 'Stocks Raw Price vs Index':
+                overall_plot.add_trace(
+                    go.Scatter(x=temp_stock['date'], y=temp_stock['adj_close'],
+                               name=stock_name, hovertemplate='$%{y:.2f}',
+                               line=dict(color=cols[stock_num])
+                               )
+                )
+
+                overall_plot.update_yaxes(title_text='Price ($)', tickprefix='$')
+            elif type_of_graph == 'Stocks Normalized vs Index':
+                overall_plot.add_trace(
+                    go.Scatter(x=temp_stock['date'], y=1000 * temp_stock['adj_close'] / initial_price,
+                               name=stock_name, hovertemplate='%{y:.0f}',
+                               line=dict(color=cols[stock_num])
+                               )
+                )
+
+                overall_plot.update_yaxes(title_text='Price Normalized')
+    elif type_of_graph == 'Portfolio Normalized vs Index':
+        non_index_stocks = combined_data[combined_data['exchange'] != 'INDX']
+        grouped_portfolio = non_index_stocks.groupby(['date'])['total_value'].sum().to_frame().reset_index()
+        grouped_portfolio['symbol'] = 'PORTFOLIO'
+        grouped_portfolio = grouped_portfolio[['date', 'symbol', 'total_value']]
+
+        index_stocks = combined_data[combined_data['exchange'] == 'INDX'].copy()
+        index_stocks.loc[:, 'total_value'] = index_stocks.loc[:, 'adj_close']
+        index_stocks = index_stocks[['date', 'symbol', 'total_value']]
+
+        master_data = pd.concat([grouped_portfolio, index_stocks])
+
+        num_stocks = master_data['symbol'].nunique()
+
+        for stock_num in range(num_stocks):
+            stock_name = master_data['symbol'].unique()[stock_num]
+            temp_stock = master_data[master_data['symbol'] == stock_name]
+            initial_price = temp_stock['total_value'].iloc[0]
+
+            if stock_name not in index_stocks['symbol'].unique():
+                overall_plot.add_trace(
+                    go.Scatter(x=temp_stock['date'], y=1000 * temp_stock['total_value'] / initial_price,
+                               name=stock_name, hovertemplate='%{y:.0f}',
+                               line=dict(color='rgba(46, 49, 49, 1)', width=2)
+                               )
+                )
+            else:
+                overall_plot.add_trace(
+                    go.Scatter(x=temp_stock['date'], y=1000 * temp_stock['total_value'] / initial_price,
+                               name=stock_name, hovertemplate='%{y:.0f}',
+                               line=dict(color=cols[stock_num],  dash='dashdot')
+                               )
+                )
+
+        overall_plot.update_yaxes(title_text='Price Normalized')
+
+    overall_plot.update_layout(template='plotly_white', hovermode='x unified',
+                               legend=dict(orientation='h', yanchor='bottom', y=1.02,
+                                           xanchor='right', x=1),
+                               title_text='All stock(s) historical prices compared to indexes')
+
+    return [overall_plot]
 
 
 @app.callback(
@@ -438,8 +541,10 @@ def update_charts(jsonified_cleaned_data):
 def update_efficient_frontier(jsonified_cleaned_data):
     combined_data = pd.read_json(jsonified_cleaned_data[0], orient='split')
 
+    non_index_stocks = combined_data[combined_data['exchange'] != 'INDX']
+
     # get efficient frontier for sharpe ratio
-    table = pd.pivot_table(data=combined_data, index='date', columns='symbol', values='adj_close', aggfunc='sum')
+    table = pd.pivot_table(data=non_index_stocks, index='date', columns='symbol', values='adj_close', aggfunc='sum')
     returns = table.pct_change()
 
     mean_returns = returns.mean()

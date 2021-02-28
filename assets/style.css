@@ -45,6 +45,15 @@ body {
     box-shadow: 0 4px 6px 0 rgba(0, 0, 0, 0.18);
 }
 
+.card-with-dropdown {
+    height:600px;
+    padding-top: 24px;
+    padding-left: 12px;
+    margin: auto auto 48px auto;
+    background-color: #FFFFFF;
+    box-shadow: 0 4px 6px 0 rgba(0, 0, 0, 0.18);
+}
+
 .alert-bar {
     margin-bottom: 24px;
     height:50px;
@@ -86,6 +95,14 @@ body {
     text-align: center;
 }
 
+.menu-card-title {
+    margin-top:6px;
+    margin-bottom: 6px;
+    font-weight: bold;
+    color: #079A82;
+    text-align: left;
+}
+
 .input{
     width: 200px;
     height: 48px;
@@ -115,4 +132,11 @@ body {
     font-weight: bold;
     border-radius: 8px;
     border: 1px solid  Gainsboro;
+}
+
+.input-special{
+    width: 500px;
+    height: 48px;
+    text-align:left;
+    font-size:14px;
 }
