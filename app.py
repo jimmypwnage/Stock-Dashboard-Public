@@ -466,13 +466,18 @@ def update_performance_all(query_df, type_of_graph):
             stock_name = combined_data['symbol'].unique()[stock_num]
             temp_stock = combined_data[combined_data['symbol'] == stock_name]
 
+            if temp_stock['exchange'].unique()[0] == 'INDX':
+                dash_value = 'dashdot'
+            else:
+                dash_value = 'solid'
+
             initial_price = temp_stock['adj_close'].iloc[0]
 
             if type_of_graph == 'Stocks Raw Price vs Index':
                 overall_plot.add_trace(
                     go.Scatter(x=temp_stock['date'], y=temp_stock['adj_close'],
                                name=stock_name, hovertemplate='$%{y:.2f}',
-                               line=dict(color=cols[stock_num])
+                               line=dict(color=cols[stock_num], dash=dash_value)
                                )
                 )
 
@@ -481,7 +486,7 @@ def update_performance_all(query_df, type_of_graph):
                 overall_plot.add_trace(
                     go.Scatter(x=temp_stock['date'], y=1000 * temp_stock['adj_close'] / initial_price,
                                name=stock_name, hovertemplate='%{y:.0f}',
-                               line=dict(color=cols[stock_num])
+                               line=dict(color=cols[stock_num], dash=dash_value)
                                )
                 )
 
